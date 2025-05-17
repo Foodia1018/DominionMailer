@@ -18,13 +18,12 @@ class DBManager:
         conn = self.get_connection()
         try:
             cursor = conn.cursor()
-        try:
             cursor.execute(query, params or ())
             if commit:
-                self.conn.commit()
-                result = cursor.lastrowid if commit else (cursor.fetchone() if fetch_one else (cursor.fetchall() if fetch_all else cursor))
-            if commit:
                 conn.commit()
+                result = cursor.lastrowid
+            else:
+                result = cursor.fetchone() if fetch_one else (cursor.fetchall() if fetch_all else cursor)
             return result
         except sqlite3.Error as e:
             st.error(f"Database error: {e}")
