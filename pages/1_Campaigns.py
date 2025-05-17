@@ -194,9 +194,9 @@ elif st.session_state.campaign_view == "create":
                     
                     if new_campaign_id:
                         st.success(f"Campaign '{campaign_name}' created successfully!")
-                        # Set the campaign ID for editing
+                        # Set the campaign ID for sending
                         st.session_state.campaign_id = new_campaign_id
-                        st.session_state.campaign_view = "edit"
+                        st.session_state.campaign_view = "send"
                         st.rerun()
                     else:
                         st.error("Failed to create campaign. Please try again.")
