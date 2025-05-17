@@ -1,0 +1,877 @@
+# DominionMailer - Single Script Conceptual Implementation
+# "Design like a creator. Deliver like a machine."
+
+import sys
+import os
+import csv
+import json
+import re
+import smtplib
+import sqlite3
+import time
+import hashlib
+import threading
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
+from email.utils import formatdate, make_msgid
+from urllib.parse import urlparse
+
+# PyQt6 Imports
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QLabel, QLineEdit, QTextEdit, QStackedWidget,
+    QListWidget, QTableWidget, QTableWidgetItem, QFileDialog, QMessageBox,
+    QProgressBar, QSplitter, QMenuBar, QMenu, QToolBar, QStatusBar,
+    QDialog, QFormLayout, QComboBox, QCheckBox, QSpinBox, QTabWidget,
+    QSizePolicy, QFrame, QScrollArea, QSplashScreen, QSystemTrayIcon, QMenu as QSystemTrayMenu
+)
+from PyQt6.QtGui import QPixmap, QFont, QIcon, QAction, QDesktopServices, QPainter, QColor, QLinearGradient, QBrush
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize, QUrl, QSettings
+
+# --- Constants ---
+APP_NAME = "DominionMailer"
+APP_VERSION = "0.1.0"
+SETTINGS_FILE = "dominion_mailer_settings.ini" # For simple app settings
+DB_NAME = "dominion_mailer_data.db"
+VIDEO_TUTORIAL_URL = "https://cbelko.net/video"
+
+# --- Global Styles (QSS - Qt Style Sheets) ---
+# This is a simplified example. A full theme would be much more extensive.
+GLOBAL_STYLES = """
+    QMainWindow, QDialog {
+        background-color: #2E3440; /* Nord Polar Night */
+        color: #D8DEE9; /* Nord Snow Storm */
+    }
+    QWidget {
+        color: #D8DEE9;
+    }
+    QLabel {
+        color: #E5E9F0;
+        font-size: 10pt;
+    }
+    QLineEdit, QTextEdit, QSpinBox, QComboBox {
+        background-color: #3B4252; /* Nord Polar Night darker */
+        color: #ECEFF4; /* Nord Snow Storm lighter */
+        border: 1px solid #4C566A; /* Nord Polar Night Lighter */
+        border-radius: 4px;
+        padding: 5px;
+        font-size: 10pt;
+    }
+    QLineEdit:focus, QTextEdit:focus, QSpinBox:focus, QComboBox:focus {
+        border: 1px solid #88C0D0; /* Nord Frost Cyan */
+    }
+    QPushButton {
+        background-color: #5E81AC; /* Nord Frost Blue */
+        color: #ECEFF4;
+        border: none;
+        border-radius: 4px;
+        padding: 8px 15px;
+        font-size: 10pt;
+        font-weight: bold;
+    }
+    QPushButton:hover {
+        background-color: #81A1C1; /* Nord Frost Lighter Blue */
+    }
+    QPushButton:pressed {
+        background-color: #4C566A;
+    }
+    QPushButton#SpecialButton {
+        background-color: #A3BE8C; /* Nord Frost Green */
+    }
+    QPushButton#SpecialButton:hover {
+        background-color: #B4D0A0;
+    }
+    QListWidget, QTableWidget {
+        background-color: #3B4252;
+        border: 1px solid #4C566A;
+        border-radius: 4px;
+        font-size: 10pt;
+    }
+    QTableWidget QHeaderView::section {
+        background-color: #434C5E; /* Nord Polar Night medium */
+        color: #ECEFF4;
+        padding: 4px;
+        border: 1px solid #4C566A;
+    }
+    QTabWidget::pane {
+        border: 1px solid #4C566A;
+        background-color: #3B4252;
+    }
+    QTabBar::tab {
+        background-color: #434C5E;
+        color: #D8DEE9;
+        padding: 8px 15px;
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+        margin-right: 2px;
+    }
+    QTabBar::tab:selected {
+        background-color: #5E81AC; /* Nord Frost Blue */
+        color: #ECEFF4;
+    }
+    QTabBar::tab:hover {
+        background-color: #4C566A;
+    }
+    QMenuBar {
+        background-color: #3B4252;
+        color: #D8DEE9;
+    }
+    QMenuBar::item:selected {
+        background-color: #5E81AC;
+    }
+    QMenu {
+        background-color: #3B4252;
+        color: #D8DEE9;
+        border: 1px solid #4C566A;
+    }
+    QMenu::item:selected {
+        background-color: #5E81AC;
+    }
+    QStatusBar {
+        background-color: #3B4252;
+        color: #D8DEE9;
+    }
+    QProgressBar {
+        border: 1px solid #4C566A;
+        border-radius: 4px;
+        text-align: center;
+        color: #ECEFF4;
+    }
+    QProgressBar::chunk {
+        background-color: #88C0D0; /* Nord Frost Cyan */
+        border-radius: 3px;
+    }
+    QScrollBar:vertical {
+        border: none;
+        background: #3B4252;
+        width: 10px;
+        margin: 0px 0px 0px 0px;
+    }
+    QScrollBar::handle:vertical {
+        background: #5E81AC;
+        min-height: 20px;
+        border-radius: 5px;
+    }
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+        height: 0px;
+    }
+    QScrollBar:horizontal {
+        border: none;
+        background: #3B4252;
+        height: 10px;
+        margin: 0px 0px 0px 0px;
+    }
+    QScrollBar::handle:horizontal {
+        background: #5E81AC;
+        min-width: 20px;
+        border-radius: 5px;
+    }
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+        width: 0px;
+    }
+"""
+
+# --- Utility Functions (utils/helpers.py) ---
+class Helpers:
+    @staticmethod
+    def is_valid_email(email):
+        # Basic regex for email validation (can be improved)
+        regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return re.match(regex, email) is not None
+
+    @staticmethod
+    def generate_unsubscribe_link(base_url, email_hash):
+        return f"{base_url}/unsubscribe?id={email_hash}" # Placeholder
+
+    @staticmethod
+    def generate_view_in_browser_link(base_url, campaign_id, email_hash):
+        return f"{base_url}/view?cid={campaign_id}&eid={email_hash}" # Placeholder
+
+    @staticmethod
+    def get_current_timestamp():
+        return time.strftime("%Y-%m-%d %H:%M:%S")
+
+    @staticmethod
+    def hash_string(s, algorithm='sha256'):
+        h = hashlib.new(algorithm)
+        h.update(s.encode('utf-8'))
+        return h.hexdigest()
+
+# --- Database (database/db_manager.py) ---
+class DBManager:
+    def __init__(self, db_name=DB_NAME):
+        self.db_name = db_name
+        self.conn = None
+        self.connect()
+        self.create_tables()
+
+    def connect(self):
+        self.conn = sqlite3.connect(self.db_name)
+        self.conn.row_factory = sqlite3.Row # Access columns by name
+
+    def close(self):
+        if self.conn:
+            self.conn.close()
+
+    def execute_query(self, query, params=None, fetch_one=False, fetch_all=False, commit=False):
+        if not self.conn:
+            self.connect()
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(query, params or ())
+            if commit:
+                self.conn.commit()
+                return cursor.lastrowid # Return last inserted row id if applicable
+            if fetch_one:
+                return cursor.fetchone()
+            if fetch_all:
+                return cursor.fetchall()
+            return cursor # For cases where you need the cursor itself
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            print(f"Query: {query}")
+            print(f"Params: {params}")
+            return None
+        # No finally: close cursor here, as it might be needed by caller if not fetching
+
+    def create_tables(self):
+        # Campaigns Table
+        self.execute_query("""
+            CREATE TABLE IF NOT EXISTS campaigns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                sender_id TEXT, -- Could be an ID linking to a sender profile
+                subject TEXT,
+                body_html TEXT,
+                body_text TEXT,
+                list_id INTEGER, -- Link to a recipient list
+                smtp_config_id INTEGER, -- Link to SMTP settings
+                throttle_rate INTEGER DEFAULT 10, -- emails per minute
+                status TEXT DEFAULT 'draft', -- draft, sending, completed, paused, error
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                logo_path TEXT,
+                project_file_path TEXT -- Path to a .dominionproj file
+            )
+        """)
+        # Recipient Lists Table
+        self.execute_query("""
+            CREATE TABLE IF NOT EXISTS recipient_lists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Recipients Table
+        self.execute_query("""
+            CREATE TABLE IF NOT EXISTS recipients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                list_id INTEGER NOT NULL,
+                email TEXT NOT NULL,
+                name TEXT,
+                domain TEXT,
+                custom1 TEXT, custom2 TEXT, custom3 TEXT, custom4 TEXT, custom5 TEXT,
+                custom6 TEXT, custom7 TEXT, custom8 TEXT, custom9 TEXT, custom10 TEXT,
+                status TEXT DEFAULT 'active', -- active, unsubscribed, bounced, verified
+                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(list_id, email),
+                FOREIGN KEY (list_id) REFERENCES recipient_lists(id) ON DELETE CASCADE
+            )
+        """)
+        # SMTP Configurations Table
+        self.execute_query("""
+            CREATE TABLE IF NOT EXISTS smtp_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_name TEXT NOT NULL UNIQUE,
+                host TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                username TEXT,
+                password TEXT, -- Should be encrypted in a real app
+                use_tls BOOLEAN DEFAULT TRUE,
+                use_ssl BOOLEAN DEFAULT FALSE, -- Typically port 465 implies SSL
+                timeout INTEGER DEFAULT 30,
+                sender_email TEXT, -- From email address
+                sender_name TEXT  -- From name
+            )
+        """)
+        # Email Tracking Table
+        self.execute_query("""
+            CREATE TABLE IF NOT EXISTS email_tracking (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                campaign_id INTEGER NOT NULL,
+                recipient_id INTEGER NOT NULL,
+                sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                status TEXT, -- e.g., 'sent', 'failed', 'delivered', 'opened', 'clicked', 'bounced'
+                error_message TEXT,
+                FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
+                FOREIGN KEY (recipient_id) REFERENCES recipients(id) ON DELETE CASCADE
+            )
+        """)
+        # Templates Table
+        self.execute_query("""
+            CREATE TABLE IF NOT EXISTS email_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                subject TEXT,
+                body_html TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Auto-exclusion Lists
+        self.execute_query("""
+            CREATE TABLE IF NOT EXISTS exclusion_domains (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                domain TEXT NOT NULL UNIQUE
+            )
+        """)
+        self.execute_query("""
+            CREATE TABLE IF NOT EXISTS exclusion_users ( -- email addresses
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE
+            )
+        """)
+        self.execute_query("""
+            CREATE TABLE IF NOT EXISTS exclusion_hashes ( -- MD5/SHA1/SHA256 of email
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hash_value TEXT NOT NULL UNIQUE,
+                hash_type TEXT NOT NULL -- md5, sha1, sha256
+            )
+        """)
+        self.conn.commit()
+
+    # ... Add more CRUD operations for each table as needed ...
+    # Example:
+    def add_smtp_config(self, profile_name, host, port, username, password, use_tls, sender_email, sender_name):
+        query = """
+            INSERT INTO smtp_configs (profile_name, host, port, username, password, use_tls, sender_email, sender_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        return self.execute_query(query, (profile_name, host, port, username, password, use_tls, sender_email, sender_name), commit=True)
+
+    def get_smtp_configs(self):
+        return self.execute_query("SELECT * FROM smtp_configs", fetch_all=True)
+
+    def get_smtp_config_by_id(self, config_id):
+        return self.execute_query("SELECT * FROM smtp_configs WHERE id = ?", (config_id,), fetch_one=True)
+
+    def add_campaign(self, name):
+        query = "INSERT INTO campaigns (name) VALUES (?)"
+        return self.execute_query(query, (name,), commit=True)
+
+    def get_campaigns(self):
+        return self.execute_query("SELECT * FROM campaigns ORDER BY created_at DESC", fetch_all=True)
+
+    def get_campaign_by_id(self, campaign_id):
+        return self.execute_query("SELECT * FROM campaigns WHERE id = ?", (campaign_id,), fetch_one=True)
+
+    def update_campaign_details(self, campaign_id, name, sender_id, subject, body_html, list_id, smtp_config_id, throttle_rate, logo_path):
+        query = """
+            UPDATE campaigns
+            SET name = ?, sender_id = ?, subject = ?, body_html = ?, list_id = ?, smtp_config_id = ?, throttle_rate = ?, logo_path = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """
+        self.execute_query(query, (name, sender_id, subject, body_html, list_id, smtp_config_id, throttle_rate, logo_path, campaign_id), commit=True)
+
+    def update_campaign_status(self, campaign_id, status):
+        query = "UPDATE campaigns SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+        self.execute_query(query, (status, campaign_id), commit=True)
+
+    def add_recipient_list(self, name):
+        query = "INSERT INTO recipient_lists (name) VALUES (?)"
+        return self.execute_query(query, (name,), commit=True)
+
+    def get_recipient_lists(self):
+        return self.execute_query("SELECT * FROM recipient_lists", fetch_all=True)
+
+    def add_recipient(self, list_id, email, name=None, domain=None, **kwargs):
+        # Construct query for custom fields
+        custom_fields_names = [f"custom{i}" for i in range(1, 11)]
+        custom_fields_values = [kwargs.get(f"custom{i}", None) for i in range(1, 11)]
+
+        query = f"""
+            INSERT INTO recipients (list_id, email, name, domain, {', '.join(custom_fields_names)})
+            VALUES (?, ?, ?, ?, {', '.join(['?'] * 10)})
+            ON CONFLICT(list_id, email) DO NOTHING
+        """
+        params = (list_id, email, name, domain, *custom_fields_values)
+        return self.execute_query(query, params, commit=True)
+
+    def get_recipients_by_list_id(self, list_id):
+        return self.execute_query("SELECT * FROM recipients WHERE list_id = ?", (list_id,), fetch_all=True)
+
+    def record_email_sent(self, campaign_id, recipient_id, status, error_message=None):
+        query = """
+            INSERT INTO email_tracking (campaign_id, recipient_id, status, error_message, sent_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """
+        self.execute_query(query, (campaign_id, recipient_id, status, error_message), commit=True)
+
+    def get_campaign_stats(self, campaign_id):
+        total_sent_query = "SELECT COUNT(*) FROM email_tracking WHERE campaign_id = ?"
+        successful_sent_query = "SELECT COUNT(*) FROM email_tracking WHERE campaign_id = ? AND status = 'sent'"
+        failed_sent_query = "SELECT COUNT(*) FROM email_tracking WHERE campaign_id = ? AND (status = 'failed' OR status = 'bounced')"
+        # Add more queries for opens, clicks, bounces once tracking pixel / bounce handling is implemented
+
+        total_sent = self.execute_query(total_sent_query, (campaign_id,), fetch_one=True)[0] or 0
+        successful_sent = self.execute_query(successful_sent_query, (campaign_id,), fetch_one=True)[0] or 0
+        failed_sent = self.execute_query(failed_sent_query, (campaign_id,), fetch_one=True)[0] or 0
+
+        return {
+            "total_sent": total_sent,
+            "successful_sent": successful_sent,
+            "failed_sent": failed_sent,
+            "open_rate": 0, # Placeholder
+            "click_rate": 0 # Placeholder
+        }
+
+    def add_template(self, name, subject, body_html):
+        query = "INSERT INTO email_templates (name, subject, body_html) VALUES (?, ?, ?)"
+        return self.execute_query(query, (name, subject, body_html), commit=True)
+
+    def get_templates(self):
+        return self.execute_query("SELECT * FROM email_templates", fetch_all=True)
+
+# --- Core Logic (core/) ---
+
+# core/email_validator.py
+class EmailValidator:
+    @staticmethod
+    def syntax_check(email):
+        return Helpers.is_valid_email(email)
+
+    @staticmethod
+    def smtp_ping(email):
+        # This is complex and often unreliable due to server configurations.
+        # Placeholder for a very advanced feature.
+        print(f"SMTP Ping (conceptual) for {email}")
+        return True # Assume valid for now
+
+# core/template_renderer.py
+class TemplateRenderer:
+    MERGE_FIELDS = [
+        "{Email}", "{Domain}", "{Name}", "{UnsubscribeLink}", "{ViewInBrowserLink}",
+        "{Custom1}", "{Custom2}", "{Custom3}", "{Custom4}", "{Custom5}",
+        "{Custom6}", "{Custom7}", "{Custom8}", "{Custom9}", "{Custom10}"
+    ]
+
+    @staticmethod
+    def render(template_html, recipient_data, campaign_settings=None):
+        # recipient_data is a dict-like object (e.g., sqlite3.Row)
+        # campaign_settings could contain base URLs for links
+        content = template_html
+        base_unsubscribe_url = campaign_settings.get("unsubscribe_base_url", "http://example.com")
+        base_view_url = campaign_settings.get("view_base_url", "http://example.com")
+        campaign_id = campaign_settings.get("campaign_id", "unknown_campaign")
+
+        email_hash = Helpers.hash_string(recipient_data["email"]) # For unique links
+
+        replacements = {
+            "{Email}": recipient_data.get("email", ""),
+            "{Domain}": recipient_data.get("domain", recipient_data.get("email", "").split('@')[1] if '@' in recipient_data.get("email", "") else ""),
+            "{Name}": recipient_data.get("name", ""),
+            "{UnsubscribeLink}": Helpers.generate_unsubscribe_link(base_unsubscribe_url, email_hash),
+            "{ViewInBrowserLink}": Helpers.generate_view_in_browser_link(base_view_url, campaign_id, email_hash),
+        }
+        for i in range(1, 11):
+            replacements[f"{{Custom{i}}}"] = recipient_data.get(f"custom{i}", "")
+
+        for field, value in replacements.items():
+            content = content.replace(field, str(value if value is not None else ""))
+        return content
+
+# core/smtp_engine.py
+class SMTPEngine(QThread):
+    email_sent_signal = pyqtSignal(str, str) # recipient_email, status (sent/failed)
+    campaign_finished_signal = pyqtSignal(str, int, int) # campaign_id, total_sent, total_failed
+    log_message_signal = pyqtSignal(str)
+
+    def __init__(self, smtp_config, campaign_details, recipients, db_manager):
+        super().__init__()
+        self.smtp_config = smtp_config
+        self.campaign_details = campaign_details
+        self.recipients = recipients
+        self.db_manager = db_manager
+        self.is_running = True
+        self._throttle_delay = 60.0 / self.campaign_details['throttle_rate'] if self.campaign_details['throttle_rate'] > 0 else 0.1
+
+    def run(self):
+        self.log_message_signal.emit(f"Starting campaign '{self.campaign_details['name']}'...")
+        total_sent_count = 0
+        total_failed_count = 0
+
+        try:
+            if self.smtp_config['use_ssl']: # Typically port 465
+                server = smtplib.SMTP_SSL(self.smtp_config['host'], self.smtp_config['port'], timeout=self.smtp_config.get('timeout', 30))
+            else:
+                server = smtplib.SMTP(self.smtp_config['host'], self.smtp_config['port'], timeout=self.smtp_config.get('timeout', 30))
+
+            if self.smtp_config['use_tls'] and not self.smtp_config['use_ssl']: # Port 587 or 25 typically
+                server.starttls()
+
+            if self.smtp_config['username'] and self.smtp_config['password']:
+                server.login(self.smtp_config['username'], self.smtp_config['password'])
+            self.log_message_signal.emit(f"SMTP Connected to {self.smtp_config['host']}:{self.smtp_config['port']}")
+
+            sender_email = self.smtp_config.get('sender_email', 'noreply@example.com')
+            sender_name = self.smtp_config.get('sender_name', '')
+            from_address = f"{sender_name} <{sender_email}>" if sender_name else sender_email
+
+            campaign_render_settings = {
+                "unsubscribe_base_url": "YOUR_APP_DOMAIN", # Replace with actual setting
+                "view_base_url": "YOUR_APP_DOMAIN",       # Replace with actual setting
+                "campaign_id": self.campaign_details['id']
+            }
+
+            for recipient in self.recipients:
+                if not self.is_running:
+                    self.log_message_signal.emit("Campaign stopped by user.")
+                    break
+
+                # Check exclusion lists (simplified)
+                # In a real app, this would query the DB for exclusions
+                if recipient['email'].endswith(tuple(d['domain'] for d in self.db_manager.execute_query("SELECT domain FROM exclusion_domains", fetch_all=True) or [])):
+                    self.log_message_signal.emit(f"Skipping {recipient['email']} (domain exclusion).")
+                    self.db_manager.record_email_sent(self.campaign_details['id'], recipient['id'], 'skipped_domain_exclusion')
+                    continue
+
+                msg = MIMEMultipart('alternative')
+                msg['Subject'] = TemplateRenderer.render(self.campaign_details['subject'], recipient, campaign_render_settings)
+                msg['From'] = from_address
+                msg['To'] = recipient['email']
+                msg['Date'] = formatdate(localtime=True)
+                msg['Message-ID'] = make_msgid()
+                # Add other headers like X-Mailer, List-Unsubscribe, etc.
+
+                # Render body
+                html_body_rendered = TemplateRenderer.render(self.campaign_details['body_html'], recipient, campaign_render_settings)
+                # text_body_rendered = TemplateRenderer.render(self.campaign_details.get('body_text', 'View this email in your browser.'), recipient) # Optional text part
+
+                # Attach logo if specified
+                if self.campaign_details.get('logo_path') and os.path.exists(self.campaign_details['logo_path']):
+                    # This is a basic way; proper embedding uses CID and related parts
+                    # For now, we'll assume the HTML references it if it's hosted, or we could attach it
+                    # For simplicity, let's assume logo is referenced via URL in HTML for now.
+                    # If embedding:
+                    # with open(self.campaign_details['logo_path'], 'rb') as f:
+                    #     img = MIMEImage(f.read())
+                    #     img.add_header('Content-ID', '<logo_image>')
+                    #     msg.attach(img)
+                    pass
+
+
+                msg.attach(MIMEText(html_body_rendered, 'html', 'utf-8'))
+                # msg.attach(MIMEText(text_body_rendered, 'plain'))
+
+
+                try:
+                    server.sendmail(sender_email, [recipient['email']], msg.as_string())
+                    self.log_message_signal.emit(f"Sent to: {recipient['email']}")
+                    self.email_sent_signal.emit(recipient['email'], "sent")
+                    self.db_manager.record_email_sent(self.campaign_details['id'], recipient['id'], 'sent')
+                    total_sent_count += 1
+                except Exception as e:
+                    self.log_message_signal.emit(f"Failed to send to {recipient['email']}: {e}")
+                    self.email_sent_signal.emit(recipient['email'], f"failed: {e}")
+                    self.db_manager.record_email_sent(self.campaign_details['id'], recipient['id'], 'failed', str(e))
+                    total_failed_count += 1
+                    # Basic retry logic could be added here or a failover queue
+                finally:
+                    time.sleep(self._throttle_delay) # Throttle
+
+            server.quit()
+        except smtplib.SMTPAuthenticationError as e:
+            self.log_message_signal.emit(f"SMTP Authentication Error: {e}")
+            total_failed_count = len(self.recipients) # All fail if auth fails
+        except smtplib.SMTPServerDisconnected as e:
+            self.log_message_signal.emit(f"SMTP Server Disconnected: {e}. Try checking TLS/SSL settings or port.")
+            total_failed_count = len(self.recipients)
+        except ConnectionRefusedError as e:
+             self.log_message_signal.emit(f"SMTP Connection Refused: {e}. Check host/port and firewall.")
+             total_failed_count = len(self.recipients)
+        except Exception as e:
+            self.log_message_signal.emit(f"General SMTP Error: {e}")
+            total_failed_count = len(self.recipients) # Assume all fail if connection setup fails
+        finally:
+            self.log_message_signal.emit(f"Campaign '{self.campaign_details['name']}' finished.")
+            self.campaign_finished_signal.emit(str(self.campaign_details['id']), total_sent_count, total_failed_count)
+
+    def stop(self):
+        self.is_running = False
+        self.log_message_signal.emit("Stopping campaign sending thread...")
+
+
+# core/campaign_manager.py (Functionality mostly within MainWindow and DBManager for this single script)
+class CampaignManager:
+    def __init__(self, db_manager):
+        self.db_manager = db_manager
+        self.current_campaign_thread = None
+
+    def launch_campaign(self, campaign_id, main_window_callbacks):
+        campaign_details = self.db_manager.get_campaign_by_id(campaign_id)
+        if not campaign_details:
+            QMessageBox.warning(None, "Error", "Campaign not found.")
+            return
+
+        smtp_config = self.db_manager.get_smtp_config_by_id(campaign_details['smtp_config_id'])
+        if not smtp_config:
+            QMessageBox.warning(None, "Error", "SMTP configuration not found for this campaign.")
+            return
+
+        recipients = self.db_manager.get_recipients_by_list_id(campaign_details['list_id'])
+        if not recipients:
+            QMessageBox.warning(None, "Error", "No recipients found for this campaign's list.")
+            return
+
+        if self.current_campaign_thread and self.current_campaign_thread.isRunning():
+            QMessageBox.warning(None, "Campaign Running", "Another campaign is already in progress.")
+            return
+
+        self.current_campaign_thread = SMTPEngine(smtp_config, campaign_details, recipients, self.db_manager)
+        # Connect signals from SMTPEngine to main window slots
+        self.current_campaign_thread.email_sent_signal.connect(main_window_callbacks['email_sent'])
+        self.current_campaign_thread.campaign_finished_signal.connect(main_window_callbacks['campaign_finished'])
+        self.current_campaign_thread.log_message_signal.connect(main_window_callbacks['log_message'])
+
+        self.db_manager.update_campaign_status(campaign_id, 'sending')
+        self.current_campaign_thread.start()
+        main_window_callbacks['log_message'](f"Campaign '{campaign_details['name']}' launched.")
+
+
+    def stop_current_campaign(self):
+        if self.current_campaign_thread and self.current_campaign_thread.isRunning():
+            self.current_campaign_thread.stop()
+            # Campaign status will be updated via its finish signal or here
+            # self.db_manager.update_campaign_status(self.current_campaign_thread.campaign_details['id'], 'paused') # Or 'stopped'
+
+
+# core/list_processor.py
+class ListProcessor:
+    @staticmethod
+    def import_csv(file_path, list_id, db_manager, header_map=None):
+        # header_map example: {"Email Address": "email", "First Name": "name"}
+        # If header_map is None, assumes first row is headers matching DB columns or merge tags
+        count = 0
+        skipped = 0
+        try:
+            with open(file_path, 'r', encoding='utf-8-sig') as f: # utf-8-sig to handle BOM
+                reader = csv.DictReader(f)
+                required_email_field = None
+
+                if header_map:
+                    # Find the source column name for 'email'
+                    for source_col, target_col in header_map.items():
+                        if target_col.lower() == 'email':
+                            required_email_field = source_col
+                            break
+                    if not required_email_field:
+                        raise ValueError("Email column mapping not found in header_map.")
+                else: # Auto-detect email column
+                    potential_email_headers = ['email', 'email address', 'e-mail']
+                    for field in reader.fieldnames:
+                        if field.lower().strip() in potential_email_headers:
+                            required_email_field = field
+                            break
+                    if not required_email_field:
+                        raise ValueError(f"Could not auto-detect email column. Found: {reader.fieldnames}")
+
+
+                for row in reader:
+                    email = row.get(required_email_field, "").strip()
+                    if not email or not EmailValidator.syntax_check(email):
+                        skipped += 1
+                        continue
+
+                    recipient_data = {"email": email}
+                    recipient_data["domain"] = email.split('@')[1] if '@' in email else ''
+
+                    # Map other fields
+                    if header_map:
+                        for source_col, target_col in header_map.items():
+                            if target_col.lower() != 'email': # Already handled
+                                recipient_data[target_col.lower()] = row.get(source_col, "").strip()
+                    else: # Auto map based on common names or custom fields
+                        for field in reader.fieldnames:
+                            if field.lower() == required_email_field.lower(): continue
+                            if field.lower() == 'name' or field.lower() == 'fullname' or field.lower() == 'first name':
+                                recipient_data['name'] = row.get(field, "").strip()
+                            # Allow direct mapping for Custom1..Custom10
+                            elif field.lower().startswith('custom') and field[6:].isdigit() and 1 <= int(field[6:]) <= 10:
+                                recipient_data[field.lower()] = row.get(field, "").strip()
+
+
+                    # Deduplication happens via UNIQUE constraint in DB
+                    # Add more advanced deduplication here if needed before DB insert
+                    db_manager.add_recipient(list_id, **recipient_data)
+                    count += 1
+            return count, skipped
+        except Exception as e:
+            print(f"Error importing CSV: {e}")
+            return 0, 0
+
+    @staticmethod
+    def import_json(file_path, list_id, db_manager):
+        # Assumes a list of objects, each object having at least an 'email' key.
+        # Example: [{"email": "test@example.com", "name": "Test"}, ...]
+        count = 0
+        skipped = 0
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if not isinstance(data, list):
+                    raise ValueError("JSON file must contain a list of recipient objects.")
+
+                for item in data:
+                    if not isinstance(item, dict):
+                        skipped += 1
+                        continue
+                    email = item.get("email", "").strip()
+                    if not email or not EmailValidator.syntax_check(email):
+                        skipped += 1
+                        continue
+
+                    recipient_data = {"email": email}
+                    recipient_data["domain"] = email.split('@')[1] if '@' in email else ''
+                    recipient_data["name"] = item.get("name", "")
+                    for i in range(1, 11):
+                        recipient_data[f"custom{i}"] = item.get(f"custom{i}", "")
+
+                    db_manager.add_recipient(list_id, **recipient_data)
+                    count +=1
+            return count, skipped
+        except Exception as e:
+            print(f"Error importing JSON: {e}")
+            return 0, 0
+
+    @staticmethod
+    def export_list_to_csv(recipients, file_path):
+        if not recipients: return False
+        try:
+            # Determine headers dynamically from the first recipient
+            # This assumes all recipients have the same structure (from sqlite3.Row)
+            headers = recipients[0].keys()
+            with open(file_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=headers)
+                writer.writeheader()
+                for recipient_row in recipients:
+                    writer.writerow(dict(recipient_row)) # Convert sqlite3.Row to dict
+            return True
+        except Exception as e:
+            print(f"Error exporting to CSV: {e}")
+            return False
+
+# --- UI Components (ui/) ---
+
+# ui/widgets.py (Custom widgets if any, e.g., HTML editor placeholder)
+class SimpleHtmlEditor(QTextEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptRichText(True) # Allows basic rich text, not a full HTML editor
+        # For a real HTML editor, consider QWebEngineView with JS editor or a complex custom widget
+
+    def toHtml(self): # Overriding for consistency, though QTextEdit already has this
+        return super().toHtml()
+
+    def setHtml(self, html): # Overriding for consistency
+        super().setHtml(html)
+
+# ui/dashboard.py
+class DashboardPage(QWidget):
+    def __init__(self, db_manager, parent=None):
+        super().__init__(parent)
+        self.db_manager = db_manager
+        self.layout = QVBoxLayout(self)
+
+        self.title_label = QLabel("DominionMailer Dashboard")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_label.setStyleSheet("font-size: 24pt; font-weight: bold; color: #88C0D0;") # Nord Frost
+        self.layout.addWidget(self.title_label)
+
+        self.stats_frame = QFrame()
+        self.stats_frame.setFrameShape(QFrame.Shape.StyledPanel)
+        self.stats_layout = QHBoxLayout(self.stats_frame)
+
+        self.campaigns_label = QLabel("Total Campaigns: 0")
+        self.recipients_label = QLabel("Total Recipients: 0")
+        self.sent_label = QLabel("Total Emails Sent (All Time): 0") # This needs more complex tracking
+
+        self.stats_layout.addWidget(self.campaigns_label)
+        self.stats_layout.addWidget(self.recipients_label)
+        self.stats_layout.addWidget(self.sent_label)
+        self.layout.addWidget(self.stats_frame)
+
+        self.recent_campaigns_label = QLabel("Recent Campaigns:")
+        self.layout.addWidget(self.recent_campaigns_label)
+        self.campaign_list = QListWidget()
+        self.layout.addWidget(self.campaign_list)
+
+        # Placeholder for graphs or more visual elements
+        self.graph_placeholder = QLabel("Graphs & Visuals Area (Placeholder)")
+        self.graph_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.graph_placeholder.setMinimumHeight(200)
+        self.graph_placeholder.setStyleSheet("background-color: #434C5E; border-radius: 5px;")
+        self.layout.addWidget(self.graph_placeholder)
+
+        self.refresh_dashboard()
+
+    def refresh_dashboard(self):
+        # This should be called when data changes or page is shown
+        campaigns = self.db_manager.get_campaigns()
+        self.campaigns_label.setText(f"Total Campaigns: {len(campaigns)}")
+        # Sum recipients from all lists or a dedicated table for total unique recipients
+        # For simplicity, count all recipients in recipients table:
+        total_recipients = self.db_manager.execute_query("SELECT COUNT(DISTINCT email) FROM recipients", fetch_one=True)[0] or 0
+        self.recipients_label.setText(f"Total Unique Recipients: {total_recipients}")
+
+        total_sent = self.db_manager.execute_query("SELECT COUNT(*) FROM email_tracking WHERE status = 'sent'", fetch_one=True)[0] or 0
+        self.sent_label.setText(f"Total Emails Successfully Sent: {total_sent}")
+
+
+        self.campaign_list.clear()
+        for campaign in campaigns[:10]: # Show 10 most recent
+            self.campaign_list.addItem(f"{campaign['name']} (Status: {campaign['status']}) - Created: {campaign['created_at']}")
+        # More detailed stats would require querying the email_tracking table
+
+
+# ui/smtp_manager.py
+class SmtpManagerPage(QWidget):
+    def __init__(self, db_manager, parent=None):
+        super().__init__(parent)
+        self.db_manager = db_manager
+        self.layout = QVBoxLayout(self)
+
+        self.title_label = QLabel("SMTP Server Configurations")
+        self.title_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
+        self.layout.addWidget(self.title_label)
+
+        self.smtp_table = QTableWidget()
+        self.smtp_table.setColumnCount(7) # ID, Profile, Host, Port, Username, Use TLS, Sender Email
+        self.smtp_table.setHorizontalHeaderLabels(["ID", "Profile Name", "Host", "Port", "Username", "Use TLS/SSL", "Sender Email"])
+        self.smtp_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.smtp_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.layout.addWidget(self.smtp_table)
+
+        self.button_layout = QHBoxLayout()
+        self.add_button = QPushButton(QIcon.fromTheme("list-add"), "Add SMTP Profile")
+        self.edit_button = QPushButton(QIcon.fromTheme("document-edit"), "Edit Selected")
+        self.delete_button = QPushButton(QIcon.fromTheme("list-remove"), "Delete Selected")
+        self.button_layout.addWidget(self.add_button)
+        self.button_layout.addWidget(self.edit_button)
+        self.button_layout.addWidget(self.delete_button)
+        self.layout.addLayout(self.button_layout)
+
+        self.add_button.clicked.connect(self.add_smtp_dialog)
+        self.edit_button.clicked.connect(self.edit_smtp_dialog)
+        self.delete_button.clicked.connect(self.delete_smtp)
+
+        self.load_smtp_profiles()
+
+    def load_smtp_profiles(self):
+        self.smtp_table.setRowCount(0)
+        profiles = self.db_manager.get_smtp_configs()
+        if profiles:
+            for row_num, profile in enumerate(profiles):
+                self.smtp_table.insertRow(row_num)
+                self.smtp_table.setItem(row_num, 0, QTableWidgetItem(str(profile['id'])))
+                self.smtp_table.setItem(row_num, 1, QTableWidgetItem(profile['profile_name']))
+                self.smtp_table.setItem(row_num, 2, QTableWidgetItem(profile['host']))
