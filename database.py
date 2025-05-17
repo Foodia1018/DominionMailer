@@ -7,12 +7,17 @@ from datetime import datetime
 class DBManager:
     def __init__(self, db_name="dominion_mailer_data.db"):
         self.db_name = db_name
-        self.create_tables()
+        self.conn = None
+        self.initialize_database()
 
     def get_connection(self):
         conn = sqlite3.connect(self.db_name)
         conn.row_factory = sqlite3.Row  # Access columns by name
         return conn
+
+    def initialize_database(self):
+        self.conn = self.get_connection()
+        self.create_tables()
 
     def execute_query(self, query, params=None, fetch_one=False, fetch_all=False, commit=False):
         conn = self.get_connection()
