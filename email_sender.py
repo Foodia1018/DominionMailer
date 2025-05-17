@@ -12,6 +12,34 @@ class EmailSender:
         """
         Initialize EmailSender with SMTP configuration
         
+
+    @staticmethod
+    def get_next_smtp_config(db, current_config_id=None):
+        """Get next available SMTP configuration based on rotation order and limits"""
+        configs = db.execute_query(
+            """
+            SELECT * FROM smtp_configs 
+            WHERE (
+                SELECT COUNT(*) FROM email_tracking 
+                WHERE sent_at > date('now', '-1 day') 
+                AND smtp_config_id = smtp_configs.id
+            ) < daily_limit
+            ORDER BY CASE WHEN rotation_order = 0 THEN 999999 ELSE rotation_order END
+            """, 
+            fetch_all=True
+        )
+        
+        if not configs:
+            return None
+            
+        if current_config_id:
+            # Find next config after current
+            for i, config in enumerate(configs):
+                if config['id'] == current_config_id and i + 1 < len(configs):
+                    return configs[i + 1]
+                    
+        return configs[0]
+
         Args:
             smtp_config: Dictionary containing SMTP configuration
         """
@@ -75,7 +103,7 @@ class EmailSender:
     
     def send_campaign(self, campaign, recipients, db, base_url="http://example.com", throttle_rate=10):
         """
-        Send a campaign to multiple recipients
+        Send a campaign to multiple recipients using SMTP rotation
         
         Args:
             campaign: Campaign data dictionary
@@ -102,17 +130,18 @@ class EmailSender:
         status_text = st.empty()
         
         try:
-            # Connect to SMTP server
-            if self.use_ssl:
-                server = smtplib.SMTP_SSL(self.host, self.port, timeout=self.timeout)
-            else:
-                server = smtplib.SMTP(self.host, self.port, timeout=self.timeout)
-                
-            if self.use_tls:
-                server.starttls()
+            current_smtp_config = None
+            server = None
             
-            # Login to SMTP server
-            server.login(self.username, self.password)
+            def connect_smtp(config):
+                if config['use_ssl']:
+                    srv = smtplib.SMTP_SSL(config['host'], config['port'], timeout=config['timeout'])
+                else:
+                    srv = smtplib.SMTP(config['host'], config['port'], timeout=config['timeout'])
+                    if config['use_tls']:
+                        srv.starttls()
+                srv.login(config['username'], config['password'])
+                return srv
             
             # Process each recipient
             for i, recipient in enumerate(recipients):

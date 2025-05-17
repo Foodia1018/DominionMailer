@@ -44,7 +44,13 @@ with tab1:
                 profile_name = st.text_input("Profile Name", placeholder="Gmail SMTP")
                 host = st.text_input("SMTP Host", placeholder="smtp.gmail.com")
                 port = st.number_input("SMTP Port", min_value=1, max_value=65535, value=587)
-                use_tls = st.checkbox("Use TLS", value=True)
+                col1a, col2a = st.columns(2)
+                with col1a:
+                    use_tls = st.checkbox("Use TLS", value=True)
+                with col2a:
+                    use_ssl = st.checkbox("Use SSL", value=False)
+                daily_limit = st.number_input("Daily Send Limit", min_value=1, max_value=500000, value=10000)
+                rotation_order = st.number_input("Rotation Order (0 = automatic)", min_value=0, value=0)
             
             with col2:
                 username = st.text_input("SMTP Username", placeholder="your.email@gmail.com")

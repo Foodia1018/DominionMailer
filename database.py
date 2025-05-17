@@ -97,7 +97,9 @@ class DBManager:
                 use_ssl BOOLEAN DEFAULT FALSE,
                 timeout INTEGER DEFAULT 30,
                 sender_email TEXT,
-                sender_name TEXT
+                sender_name TEXT,
+                daily_limit INTEGER DEFAULT 500000,
+                rotation_order INTEGER DEFAULT 0
             )
         """)
         
