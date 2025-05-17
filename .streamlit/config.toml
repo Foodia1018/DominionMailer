@@ -5,7 +5,9 @@ port = 5000
 enableCORS = false
 enableXsrfProtection = false
 enableWebsocketCompression = false
+headless = true
 
 [browser]
 serverAddress = "0.0.0.0"
 serverPort = 5000
+gatherUsageStats = false
