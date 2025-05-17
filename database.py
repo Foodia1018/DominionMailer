@@ -7,37 +7,32 @@ from datetime import datetime
 class DBManager:
     def __init__(self, db_name="dominion_mailer_data.db"):
         self.db_name = db_name
-        self.conn = None
-        self.connect()
         self.create_tables()
 
-    def connect(self):
-        self.conn = sqlite3.connect(self.db_name)
-        self.conn.row_factory = sqlite3.Row  # Access columns by name
-
-    def close(self):
-        if self.conn:
-            self.conn.close()
+    def get_connection(self):
+        conn = sqlite3.connect(self.db_name)
+        conn.row_factory = sqlite3.Row  # Access columns by name
+        return conn
 
     def execute_query(self, query, params=None, fetch_one=False, fetch_all=False, commit=False):
-        if not self.conn:
-            self.connect()
-        cursor = self.conn.cursor()
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
         try:
             cursor.execute(query, params or ())
             if commit:
                 self.conn.commit()
-                return cursor.lastrowid  # Return last inserted row id if applicable
-            if fetch_one:
-                return cursor.fetchone()
-            if fetch_all:
-                return cursor.fetchall()
-            return cursor  # For cases where you need the cursor itself
+                result = cursor.lastrowid if commit else (cursor.fetchone() if fetch_one else (cursor.fetchall() if fetch_all else cursor))
+            if commit:
+                conn.commit()
+            return result
         except sqlite3.Error as e:
             st.error(f"Database error: {e}")
             st.error(f"Query: {query}")
             st.error(f"Params: {params}")
             return None
+        finally:
+            conn.close()
 
     def create_tables(self):
         # Campaigns Table
