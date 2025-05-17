@@ -11,7 +11,16 @@ class EmailSender:
     def __init__(self, smtp_config):
         """
         Initialize EmailSender with SMTP configuration
-        
+        """
+        self.host = smtp_config['host']
+        self.port = smtp_config['port']
+        self.username = smtp_config['username']
+        self.password = smtp_config['password']
+        self.use_tls = smtp_config['use_tls']
+        self.use_ssl = smtp_config.get('use_ssl', False)
+        self.timeout = smtp_config.get('timeout', 30)
+        self.sender_email = smtp_config['sender_email']
+        self.sender_name = smtp_config['sender_name']
 
     @staticmethod
     def get_next_smtp_config(db, current_config_id=None):
