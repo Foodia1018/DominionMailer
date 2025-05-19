@@ -1,9 +1,12 @@
+# Exported from Render on 2025-05-19T12:48:28Z
 services:
-  - type: web
-    name: my-python-app
-    env: python
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn app:app"
-    envVars:
-      - key: PORT
-        value: 10000
+- type: web
+  name: DominionMailer
+  runtime: python
+  repo: https://github.com/Foodia1018/DominionMailer
+  plan: free
+  region: oregon
+  buildCommand: python app.py
+  startCommand: gunicorn app:app
+  autoDeployTrigger: commit
+version: "1"
