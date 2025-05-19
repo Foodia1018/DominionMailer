@@ -1,12 +1,12 @@
-# Exported from Render on 2025-05-19T12:48:28Z
-services:
-- type: web
-  name: DominionMailer
-  runtime: python
-  repo: https://github.com/Foodia1018/DominionMailer
-  plan: free
-  region: oregon
-  buildCommand: python app.py
-  startCommand: gunicorn app:app
-  autoDeployTrigger: commit
+# Render deployment file for DominionMailer using Streamlit
 version: "1"
+services:
+  - type: web
+    name: DominionMailer
+    runtime: python
+    repo: https://github.com/Foodia1018/DominionMailer
+    plan: free
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py
+    autoDeploy: true
