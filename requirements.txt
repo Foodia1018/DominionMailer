@@ -2,3 +2,7 @@
 pandas>=2.2.3
 plotly>=6.1.0
 streamlit>=1.45.1
+pyinstaller
+pyinstaller
+pyinstaller
+pyinstaller
